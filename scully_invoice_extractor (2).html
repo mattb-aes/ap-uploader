@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scully → AP Ledger</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --ink:#14171c; --paper:#ffffff; --surface:#eef0f3; --line:#dfe3e8;
+    --text:#1d2127; --muted:#6b7280; --faint:#9aa1ab;
+    --accent:#0f766e; --accent-weak:#e3f1ef; --accent-line:#bfded8;
+    --warn:#9a5a00; --warn-bg:#fdf2df; --warn-line:#f0d49a;
+    --bad:#b42318; --bad-bg:#fdecea;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","SFMono-Regular",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--surface);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 20px 64px}
+
+  /* Header */
+  header{background:var(--ink);color:#fff;margin:0 -20px 0;padding:22px 28px 20px;border-bottom:3px solid var(--accent)}
+  .hwrap{max-width:1180px;margin:0 auto;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  header h1{font-size:19px;font-weight:650;letter-spacing:-0.01em;margin:0}
+  header .sub{color:#9aa3af;font-size:12.5px}
+  header .stamp{margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:#6b7785;border:1px solid #2b313a;border-radius:5px;padding:4px 9px}
+
+  /* Drop zone */
+  .drop{margin-top:22px;background:var(--paper);border:1.5px dashed var(--line);border-radius:12px;padding:30px 24px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+  .drop:hover{border-color:var(--accent-line);background:#fbfdfd}
+  .drop.over{border-color:var(--accent);background:var(--accent-weak)}
+  .drop h2{margin:0 0 4px;font-size:15.5px;font-weight:600}
+  .drop p{margin:0;color:var(--muted);font-size:13px}
+  .drop .pick{color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px}
+  .drop .small{margin-top:10px;font-size:11.5px;color:var(--faint)}
+
+  /* Settings */
+  details.settings{margin-top:14px;background:var(--paper);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  details.settings>summary{list-style:none;cursor:pointer;padding:13px 18px;font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px;user-select:none}
+  details.settings>summary::-webkit-details-marker{display:none}
+  details.settings>summary .chev{transition:transform .15s;color:var(--muted)}
+  details[open].settings>summary .chev{transform:rotate(90deg)}
+  .setgrid{padding:4px 18px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px 18px}
+  .fld label{display:block;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+  .fld input,.fld select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-family:var(--sans);font-size:13px;background:#fff;color:var(--text)}
+  .fld input:focus,.fld select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-weak)}
+  .fld .hint{font-size:11px;color:var(--faint);margin-top:5px;line-height:1.35}
+
+  /* Results */
+  .resbar{display:flex;align-items:center;gap:14px;margin:22px 2px 10px;flex-wrap:wrap}
+  .resbar h3{margin:0;font-size:14px;font-weight:650}
+  .pill{font-family:var(--mono);font-size:11.5px;background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px 11px;color:var(--muted)}
+  .pill.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+  .spacer{flex:1}
+  .btn{font-family:var(--sans);font-size:13px;font-weight:600;border-radius:8px;padding:9px 15px;border:1px solid var(--line);background:#fff;color:var(--text);cursor:pointer;transition:.12s}
+  .btn:hover{border-color:#c7ccd3;background:#fafbfc}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:#0b5d56}
+  .btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+  .btn.ghost:hover{background:#e7eaee;color:var(--text)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  .tablewrap{background:var(--paper);border:1px solid var(--line);border-radius:11px;overflow:auto}
+  table{border-collapse:collapse;width:100%;min-width:1020px;font-size:13px}
+  thead th{position:sticky;top:0;background:#f7f8fa;text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:11px 10px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:1}
+  tbody td{padding:5px 7px;border-bottom:1px solid #f0f2f4;vertical-align:middle}
+  tbody tr:hover{background:#fbfcfd}
+  tbody tr.flagged{background:var(--warn-bg)}
+  tbody tr.flagged:hover{background:#fbeed3}
+  .cell{width:100%;border:1px solid transparent;border-radius:6px;padding:6px 7px;font-family:var(--sans);font-size:13px;background:transparent;color:var(--text)}
+  .cell:hover{border-color:var(--line)}
+  .cell:focus{outline:none;border-color:var(--accent);background:#fff;box-shadow:0 0 0 2px var(--accent-weak)}
+  .cell.mono{font-family:var(--mono);font-size:12.5px}
+  .cell.num{text-align:right;font-family:var(--mono)}
+  .cell.bad{border-color:var(--bad);background:var(--bad-bg)}
+  td.src{font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap}
+  .idcell{font-family:var(--mono);font-size:11px;color:var(--muted);cursor:help}
+  td.rm{width:30px;text-align:center}
+  .x{border:none;background:none;color:var(--faint);cursor:pointer;font-size:15px;line-height:1;padding:4px;border-radius:5px}
+  .x:hover{color:var(--bad);background:var(--bad-bg)}
+  tfoot td{padding:11px 10px;border-top:2px solid var(--line);font-weight:650;background:#f7f8fa}
+  tfoot .tot{font-family:var(--mono);text-align:right}
+
+  .empty{padding:46px 20px;text-align:center;color:var(--faint);font-size:13px}
+  .colW-brand{width:64px}.colW-cur{width:70px}.colW-amt{width:104px}.colW-date{width:128px}.colW-inv{width:104px}
+
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:9px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:.22s;box-shadow:0 8px 28px rgba(0,0,0,.22);z-index:50}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .legend{font-size:11.5px;color:var(--faint);margin:9px 2px 0;display:flex;gap:16px;flex-wrap:wrap}
+  details.rawout{margin-top:12px;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:0 16px}
+  details.rawout>summary{cursor:pointer;padding:13px 0;font-weight:600;font-size:13px;list-style:none}
+  details.rawout>summary::-webkit-details-marker{display:none}
+  details.rawout>summary::before{content:"▶ ";color:var(--muted);font-size:10px}
+  details.rawout[open]>summary::before{content:"▼ "}
+  details.rawout p{margin:0 0 8px;color:var(--muted);font-size:12px}
+  details.rawout textarea{width:100%;height:120px;font-family:var(--mono);font-size:12px;border:1px solid var(--line);border-radius:7px;padding:9px;resize:vertical;margin-bottom:14px;color:var(--text);background:#fcfcfd}
+  .legend .sw{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+  @media (max-width:560px){header{padding:18px 18px 16px}.wrap{padding:0 14px 50px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="hwrap">
+    <h1>Scully&nbsp;→&nbsp;AP&nbsp;Ledger</h1>
+    <span class="sub">Drop the daily invoice PDF · review · paste into Sigma</span>
+    <span class="stamp">HISTORICAL EMPORIUM</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="drop" id="drop">
+    <h2>Drop invoice PDFs here</h2>
+    <p>or <span class="pick">choose files</span> — each page is read as one invoice</p>
+    <div class="small">Everything runs in your browser. Nothing is uploaded anywhere.</div>
+    <input type="file" id="file" accept="application/pdf" multiple hidden />
+  </div>
+
+  <details class="settings">
+    <summary><span class="chev">▶</span> Defaults &amp; rules</summary>
+    <div class="setgrid">
+      <div class="fld">
+        <label>Brand code</label>
+        <input id="s_brand" value="HE" />
+        <div class="hint">Auto-set from the billing address. Used as fallback if not detected.</div>
+      </div>
+      <div class="fld">
+        <label>Vendor</label>
+        <input id="s_vendor" value="Scully Sportswear" />
+      </div>
+      <div class="fld">
+        <label>Currency</label>
+        <input id="s_currency" value="USD" />
+      </div>
+      <div class="fld">
+        <label>Date to recognize expense</label>
+        <select id="s_recrule">
+          <option value="invoice" selected>Invoice / ship date</option>
+          <option value="due">Due date</option>
+          <option value="blank">Leave blank</option>
+        </select>
+        <div class="hint">Dropship goods ship on the invoice date, so expense usually recognizes then.</div>
+      </div>
+      <div class="fld">
+        <label>Memo format</label>
+        <select id="s_memo">
+          <option value="po_ship" selected>PO — ship-to name</option>
+          <option value="po">PO number</option>
+          <option value="ship">Ship-to name</option>
+          <option value="inv_po">Invoice # — PO</option>
+          <option value="blank">Leave blank</option>
+        </select>
+      </div>
+    </div>
+  </details>
+
+  <div class="resbar" id="resbar" style="display:none">
+    <h3>Extracted invoices</h3>
+    <span class="pill" id="count">0</span>
+    <span class="pill warn" id="flagpill" style="display:none">0 need a look</span>
+    <span class="spacer"></span>
+    <button class="btn ghost" id="clear">Clear all</button>
+    <button class="btn" id="csv">Download CSV</button>
+    <button class="btn primary" id="copy">Copy rows for Sigma</button>
+  </div>
+
+  <div class="tablewrap" id="tablewrap" style="display:none">
+    <table>
+      <thead><tr>
+        <th class="colW-brand">Brand</th>
+        <th>Vendor</th>
+        <th class="colW-inv">Invoice #</th>
+        <th class="colW-date">Date Due</th>
+        <th class="colW-date">Recognize</th>
+        <th class="colW-amt">Amount</th>
+        <th class="colW-cur">Cur</th>
+        <th>Memo</th>
+        <th>Id</th>
+        <th>Source</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+      <tfoot id="tfoot"></tfoot>
+    </table>
+  </div>
+  <div class="legend" id="legend" style="display:none">
+    <span><span class="sw" style="background:var(--warn-bg);border:1px solid var(--warn-line)"></span>Highlighted = a field couldn't be read, or this invoice # appears more than once — check it before exporting</span>
+  </div>
+
+  <details class="rawout" id="rawbox" style="display:none">
+    <summary>Manual copy (use if the button is blocked inside Sigma)</summary>
+    <p>Click into the box, select all (Ctrl/Cmd-A), copy, then paste into the first empty Brand cell of the input table. Same columns and order as the button.</p>
+    <textarea id="rawout" readonly spellcheck="false"></textarea>
+  </details>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const REQUIRED = ["invoice","dueDate","amount"]; // fields that flag a row if empty
+let rows = [];
+let uid = 0;
+let idCounter = 0;
+
+/* ---------- SHA-256 (self-contained; verified against NIST vectors) ---------- */
+function sha256(ascii){
+  function rotr(n,x){return (x>>>n)|(x<<(32-n));}
+  const K=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  let H=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  const bytes=[];
+  for(let i=0;i<ascii.length;i++){
+    let c=ascii.charCodeAt(i);
+    if(c<0x80) bytes.push(c);
+    else if(c<0x800){bytes.push(0xc0|(c>>6),0x80|(c&0x3f));}
+    else if(c<0xd800||c>=0xe000){bytes.push(0xe0|(c>>12),0x80|((c>>6)&0x3f),0x80|(c&0x3f));}
+    else{ i++; c=0x10000+(((c&0x3ff)<<10)|(ascii.charCodeAt(i)&0x3ff));
+      bytes.push(0xf0|(c>>18),0x80|((c>>12)&0x3f),0x80|((c>>6)&0x3f),0x80|(c&0x3f));}
+  }
+  const l=bytes.length*8;
+  bytes.push(0x80);
+  while((bytes.length%64)!==56) bytes.push(0);
+  for(let i=7;i>=0;i--) bytes.push((l/Math.pow(2,8*i))&0xff);
+  const w=new Int32Array(64);
+  for(let j=0;j<bytes.length;j+=64){
+    for(let i=0;i<16;i++) w[i]=(bytes[j+i*4]<<24)|(bytes[j+i*4+1]<<16)|(bytes[j+i*4+2]<<8)|(bytes[j+i*4+3]);
+    for(let i=16;i<64;i++){
+      const s0=rotr(7,w[i-15])^rotr(18,w[i-15])^(w[i-15]>>>3);
+      const s1=rotr(17,w[i-2])^rotr(19,w[i-2])^(w[i-2]>>>10);
+      w[i]=(w[i-16]+s0+w[i-7]+s1)|0;
+    }
+    let a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+    for(let i=0;i<64;i++){
+      const S1=rotr(6,e)^rotr(11,e)^rotr(25,e);
+      const ch=(e&f)^(~e&g);
+      const t1=(h+S1+ch+K[i]+w[i])|0;
+      const S0=rotr(2,a)^rotr(13,a)^rotr(22,a);
+      const maj=(a&b)^(a&c)^(b&c);
+      const t2=(S0+maj)|0;
+      h=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0;
+    }
+    H=[(H[0]+a)|0,(H[1]+b)|0,(H[2]+c)|0,(H[3]+d)|0,(H[4]+e)|0,(H[5]+f)|0,(H[6]+g)|0,(H[7]+h)|0];
+  }
+  return H.map(x=>(x>>>0).toString(16).padStart(8,"0")).join("");
+}
+function randHex(n){
+  const a=new Uint8Array(n);
+  if(window.crypto && crypto.getRandomValues) crypto.getRandomValues(a);
+  else for(let i=0;i<n;i++) a[i]=Math.floor(Math.random()*256);
+  return Array.from(a).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+// SHA-256 over the entry's values + a high-resolution timestamp + counter + random
+// nonce. Even byte-identical invoices read in the same millisecond get distinct IDs.
+function makeEntryId(r){
+  const core=[r.brand,r.vendor,r.invoice,r.dueDate,r.amount,r.currency,r.memo,r.recDate,r.file,"p"+r.page].join("|");
+  const nonce=Date.now()+"."+(performance.now())+"|"+(++idCounter)+"|"+randHex(16);
+  return sha256(core+"||"+nonce);
+}
+
+const el = id => document.getElementById(id);
+const settings = () => ({
+  brand: el("s_brand").value.trim() || "HE",
+  vendor: el("s_vendor").value.trim() || "Scully Sportswear",
+  currency: el("s_currency").value.trim() || "USD",
+  recrule: el("s_recrule").value,
+  memo: el("s_memo").value,
+});
+
+/* ---------- date helpers ---------- */
+function toISO(mdy){
+  if(!mdy) return "";
+  const m = mdy.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if(!m) return "";
+  let [_,mo,d,y] = m; y = +y; if(y<100) y += 2000;
+  return `${y}-${String(+mo).padStart(2,"0")}-${String(+d).padStart(2,"0")}`;
+}
+
+/* ---------- read one PDF page into clean line text ---------- */
+function pageToText(content){
+  const items = content.items.filter(it => it.str && it.str.trim() !== "");
+  const buckets = []; // {y, items:[{x,s}]}
+  items.forEach(it => {
+    const x = it.transform[4], y = it.transform[5];
+    let b = buckets.find(bk => Math.abs(bk.y - y) <= 3);
+    if(!b){ b = {y, items:[]}; buckets.push(b); }
+    b.items.push({x, s: it.str});
+  });
+  buckets.sort((a,b) => b.y - a.y); // top (higher y) first
+  const lines = buckets.map(b =>
+    b.items.sort((a,b)=>a.x-b.x).map(o=>o.s).join(" ").replace(/\s+/g," ").trim()
+  );
+  return lines.join("\n");
+}
+
+/* ---------- extract fields from one invoice's text ---------- */
+function extract(text){
+  const flat = text.replace(/\s+/g," ");
+  const grab = re => { const m = flat.match(re); return m ? m[1].trim() : ""; };
+
+  const invoice  = grab(/Invoice\s+(\d{5,})/);
+  const invDate  = grab(/Invoice Date\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/);
+  const dueDate  = grab(/Due Date\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/);
+  const po       = grab(/Purchase Order\s+(\S+)/);
+  const account  = grab(/Account\s+([A-Z0-9]+)/);
+  // Grand total: a "Total" not preceded by "Sub", followed by money
+  const total    = grab(/(?<![A-Za-z])Total\s+([\d,]+\.\d{2})/);
+  let shipTo     = grab(/HISTORICAL EMPORIUM, INC\.\s+(.+?)\s+\d/);
+  const billHE   = /HISTORICAL EMPORIUM/i.test(flat);
+
+  return {
+    invoice,
+    invDate: toISO(invDate),
+    dueDate: toISO(dueDate),
+    po,
+    account,
+    amount: total.replace(/,/g,""),
+    shipTo: shipTo || "",
+    billHE,
+  };
+}
+
+/* ---------- derived fields that depend on settings ---------- */
+function recDate(r, s){
+  if(r.recEdited) return r.recDate;
+  if(s.recrule === "due") return r.dueDate;
+  if(s.recrule === "blank") return "";
+  return r.invDate;
+}
+function memoText(r, s){
+  if(r.memoEdited) return r.memo;
+  const po = r.po, ship = r.shipTo, inv = r.invoice;
+  switch(s.memo){
+    case "po": return po;
+    case "ship": return ship;
+    case "inv_po": return [inv, po].filter(Boolean).join(" — ");
+    case "blank": return "";
+    default: return [po, ship].filter(Boolean).join(" — ");
+  }
+}
+
+/* ---------- ingest files ---------- */
+async function ingest(files){
+  const s = settings();
+  for(const file of files){
+    if(!/\.pdf$/i.test(file.name)) continue;
+    let pdf;
+    try{
+      const data = await file.arrayBuffer();
+      pdf = await pdfjsLib.getDocument({data}).promise;
+    }catch(e){ toast(`Couldn't open ${file.name}`); continue; }
+
+    for(let p=1; p<=pdf.numPages; p++){
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      const f = extract(pageToText(content));
+      const row = {
+        id: ++uid,
+        file: file.name, page: p,
+        brand: f.billHE ? "HE" : s.brand,
+        vendor: s.vendor,
+        invoice: f.invoice,
+        dueDate: f.dueDate,
+        amount: f.amount,
+        currency: s.currency,
+        invDate: f.invDate,
+        po: f.po, shipTo: f.shipTo, account: f.account,
+        billHE: f.billHE,
+        memoEdited:false, recEdited:false,
+      };
+      row.recDate = recDate(row, s);
+      row.memo = memoText(row, s);
+      row.entryId = makeEntryId(row);
+      rows.push(row);
+    }
+  }
+  render();
+  if(rows.length) el("resbar").scrollIntoView({behavior:"smooth", block:"nearest"});
+}
+
+/* ---------- flags ---------- */
+function rowFlags(r){
+  const bad = new Set();
+  REQUIRED.forEach(k => { if(!r[k]) bad.add(k); });
+  if(!r.billHE && !r.brand) bad.add("brand");
+  return bad;
+}
+
+/* ---------- render ---------- */
+function render(){
+  const s = settings();
+  // recompute derived (non-edited) fields when settings change
+  rows.forEach(r => { r.recDate = recDate(r,s); r.memo = memoText(r,s); });
+
+  const has = rows.length > 0;
+  el("resbar").style.display = has ? "flex" : "none";
+  el("tablewrap").style.display = has ? "block" : "none";
+  el("legend").style.display = has ? "flex" : "none";
+  el("rawbox").style.display = has ? "block" : "none";
+  if(has) el("rawout").value = matrix().map(r => r.join("\t")).join("\n");
+  el("count").textContent = `${rows.length} invoice${rows.length===1?"":"s"}`;
+
+  const tbody = el("tbody");
+  tbody.innerHTML = "";
+  let total = 0, flagged = 0;
+
+  const invCount = {};
+  rows.forEach(r => { if(r.invoice) invCount[r.invoice] = (invCount[r.invoice]||0)+1; });
+
+  rows.forEach(r => {
+    const bad = rowFlags(r);
+    if(r.invoice && invCount[r.invoice] > 1) bad.add("invoice");
+    if(bad.size) flagged++;
+    const amt = parseFloat(r.amount);
+    if(!isNaN(amt)) total += amt;
+
+    const tr = document.createElement("tr");
+    if(bad.size) tr.className = "flagged";
+    tr.innerHTML = `
+      <td>${input(r.id,"brand",r.brand,"mono"+(bad.has("brand")?" bad":""))}</td>
+      <td>${input(r.id,"vendor",r.vendor,"")}</td>
+      <td>${input(r.id,"invoice",r.invoice,"mono"+(bad.has("invoice")?" bad":""))}</td>
+      <td>${input(r.id,"dueDate",r.dueDate,"mono"+(bad.has("dueDate")?" bad":""))}</td>
+      <td>${input(r.id,"recDate",r.recDate,"mono")}</td>
+      <td>${input(r.id,"amount",r.amount,"num"+(bad.has("amount")?" bad":""))}</td>
+      <td>${input(r.id,"currency",r.currency,"mono")}</td>
+      <td>${input(r.id,"memo",r.memo,"")}</td>
+      <td class="src" title="${escapeHtml(r.entryId)}"><span class="idcell">${escapeHtml(r.entryId.slice(0,10))}…</span></td>
+      <td class="src">${escapeHtml(shortName(r.file))} · p${r.page}</td>
+      <td class="rm"><button class="x" data-rm="${r.id}" title="Remove">×</button></td>`;
+    tbody.appendChild(tr);
+  });
+
+  el("tfoot").innerHTML = rows.length ? `<tr>
+      <td colspan="5" style="text-align:right;color:var(--muted)">Total payable</td>
+      <td class="tot">${total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td colspan="5"></td></tr>` : "";
+
+  const fp = el("flagpill");
+  if(flagged){ fp.style.display="inline-block"; fp.textContent = `${flagged} need a look`; }
+  else fp.style.display="none";
+
+  el("copy").disabled = !rows.length;
+  el("csv").disabled = !rows.length;
+}
+
+function input(id, key, val, cls){
+  return `<input class="cell ${cls}" data-id="${id}" data-key="${key}" value="${escapeHtml(val??"")}" />`;
+}
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function shortName(n){ n=n.replace(/\.pdf$/i,""); return n.length>22 ? n.slice(0,20)+"…" : n; }
+
+/* ---------- inline editing ---------- */
+el("tbody").addEventListener("input", e => {
+  const t = e.target;
+  if(!t.classList.contains("cell")) return;
+  const r = rows.find(x => x.id == t.dataset.id);
+  if(!r) return;
+  const key = t.dataset.key;
+  r[key] = t.value;
+  if(key === "memo") r.memoEdited = true;
+  if(key === "recDate") r.recEdited = true;
+  // light-touch: update flag styling without full re-render (keeps focus)
+  const bad = rowFlags(r);
+  t.classList.toggle("bad", bad.has(key) && REQUIRED.includes(key));
+  t.closest("tr").classList.toggle("flagged", bad.size>0);
+  recountFlags();
+});
+function recountFlags(){
+  let f=0; rows.forEach(r=>{ if(rowFlags(r).size) f++; });
+  const fp=el("flagpill");
+  if(f){fp.style.display="inline-block";fp.textContent=`${f} need a look`;} else fp.style.display="none";
+}
+el("tbody").addEventListener("click", e => {
+  const id = e.target.dataset.rm;
+  if(!id) return;
+  rows = rows.filter(r => r.id != id);
+  render();
+});
+
+/* ---------- settings reactivity ---------- */
+["s_recrule","s_memo","s_brand","s_vendor","s_currency"].forEach(idd =>
+  el(idd).addEventListener("change", render));
+
+/* ---------- export ---------- */
+const COLS = [
+  ["Brand","brand"],["Vendor","vendor"],["Invoice Number / Id","invoice"],
+  ["Date Due","dueDate"],["Amount","amount"],["Currency","currency"],
+  ["Memo","memo"],["Id","entryId"],["Date to Recognize Expense","recDate"],
+];
+function matrix(){ return rows.map(r => COLS.map(([_,k]) => r[k] ?? "")); }
+
+el("copy").addEventListener("click", () => {
+  const tsv = matrix().map(row => row.join("\t")).join("\n");
+  copyText(tsv).then(ok =>
+    toast(ok ? `Copied ${rows.length} rows — paste into the AP_LEDGER_INPUT grid`
+             : "Copy failed — try the CSV download")
+  );
+});
+el("csv").addEventListener("click", () => {
+  const esc = v => /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+  const head = COLS.map(c=>c[0]).join(",");
+  const body = matrix().map(r => r.map(esc).join(",")).join("\n");
+  const blob = new Blob([head+"\n"+body], {type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `ap_ledger_scully_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+  toast("CSV downloaded");
+});
+el("clear").addEventListener("click", () => { rows=[]; render(); });
+
+function copyText(text){
+  if(navigator.clipboard && window.isSecureContext){
+    return navigator.clipboard.writeText(text).then(()=>true).catch(()=>fallbackCopy(text));
+  }
+  return Promise.resolve(fallbackCopy(text));
+}
+function fallbackCopy(text){
+  try{
+    const ta=document.createElement("textarea");ta.value=text;ta.style.position="fixed";ta.style.opacity="0";
+    document.body.appendChild(ta);ta.select();const ok=document.execCommand("copy");ta.remove();return ok;
+  }catch(e){return false;}
+}
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg){
+  const t=el("toast");t.textContent=msg;t.classList.add("show");
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2600);
+}
+
+/* ---------- drop zone wiring ---------- */
+const drop = el("drop"), fileInput = el("file");
+drop.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", e => { ingest(e.target.files); fileInput.value=""; });
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.add("over");
+}));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); if(ev==="dragleave" && drop.contains(e.relatedTarget)) return;
+  drop.classList.remove("over");
+}));
+drop.addEventListener("drop", e => {
+  const files = [...(e.dataTransfer?.files || [])];
+  if(files.length) ingest(files);
+});
+</script>
+</body>
+</html>
