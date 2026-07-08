@@ -127,7 +127,7 @@
       </div>
       <div class="fld">
         <label>Vendor</label>
-        <input id="s_vendor" value="Scully Sportswear" />
+        <input id="s_vendor" value="Scully Sportswear (Wahmaker)" />
       </div>
       <div class="fld">
         <label>Currency</label>
@@ -269,7 +269,7 @@ function makeEntryId(r){
 const el = id => document.getElementById(id);
 const settings = () => ({
   brand: el("s_brand").value.trim() || "HE",
-  vendor: el("s_vendor").value.trim() || "Scully Sportswear",
+  vendor: el("s_vendor").value.trim() || "Scully Sportswear (Wahmaker)",
   currency: el("s_currency").value.trim() || "USD",
   recrule: el("s_recrule").value,
   memo: el("s_memo").value,
